@@ -81,26 +81,35 @@
           const json = await r.json();
           setEvents(json.record?.events || {});
           setStatus("ok");
-          setLastUpdate(new Date());
         } catch { setStatus("error"); }
       }, []);
 
       useEffect(() => { fetchEvents(); }, [fetchEvents]);
 
-      // Auto-refresh every 30 minutes
+      // Refresco silencioso — no muestra pantalla de carga
       useEffect(() => {
-        const interval = setInterval(() => { fetchEvents(); }, 30 * 60 * 1000);
-        return () => clearInterval(interval);
-      }, [fetchEvents]);
-
-      // Refresh when app comes back to foreground (tab/screen visible again)
-      useEffect(() => {
+        async function silentRefresh() {
+          try {
+            const r    = await fetch(`${BIN_URL}/latest`, {headers:{"X-Master-Key":API_KEY}});
+            const json = await r.json();
+            if (json.record?.events) {
+              setEvents(json.record.events);
+              setLastUpdate(new Date());
+            }
+          } catch {}
+        }
+        // Cada 30 minutos
+        const interval = setInterval(silentRefresh, 30 * 60 * 1000);
+        // Al volver a primer plano
         function onVisible() {
-          if (document.visibilityState === "visible") fetchEvents();
+          if (document.visibilityState === "visible") silentRefresh();
         }
         document.addEventListener("visibilitychange", onVisible);
-        return () => document.removeEventListener("visibilitychange", onVisible);
-      }, [fetchEvents]);
+        return () => {
+          clearInterval(interval);
+          document.removeEventListener("visibilitychange", onVisible);
+        };
+      }, []);
 
       // Scroll to today after load
       useEffect(() => {
@@ -180,11 +189,6 @@
               </div>
               <div style={{display:"flex",gap:8,alignItems:"center"}}>
                 {saving && <span style={{color:"rgba(255,255,255,0.7)",fontSize:11,fontWeight:600}}>💾</span>}
-                {!saving && lastUpdate && (
-                  <span style={{color:"rgba(255,255,255,0.5)",fontSize:11,fontWeight:600}}>
-                    ✓ {lastUpdate.getHours()}:{String(lastUpdate.getMinutes()).padStart(2,"0")}
-                  </span>
-                )}
                 <button onClick={()=>setMode(m=>m==="view"?"edit":"view")} style={{background:"rgba(255,255,255,0.15)",border:"2px solid rgba(255,255,255,0.45)",borderRadius:10,color:"white",fontSize:13,fontWeight:700,padding:"7px 12px",cursor:"pointer"}}>
                   {isView?"✏️ EDITAR":"👁️ VER"}
                 </button>
