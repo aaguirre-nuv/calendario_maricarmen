@@ -48,11 +48,13 @@
     }
 
     // Build array of Date objects: today + 61 more days (≈2 months)
-    function buildDays() {
+    function buildDays(showPast) {
       const today = new Date(); today.setHours(0,0,0,0);
-      return Array.from({length:62}, (_,i) => {
+      const startOffset = showPast ? -60 : 0;
+      const total       = showPast ? 122 : 62;
+      return Array.from({length:total}, (_,i) => {
         const d = new Date(today);
-        d.setDate(today.getDate() + i);
+        d.setDate(today.getDate() + startOffset + i);
         return d;
       });
     }
@@ -71,7 +73,7 @@
       const [saving, setSaving]   = useState(false);
       const todayRef              = useRef(null);
       const isView                = mode === "view";
-      const days                  = buildDays();
+      const days                  = buildDays(!isView && showPast);
       const today                 = days[0];
 
       const fetchEvents = useCallback(async () => {
@@ -86,7 +88,6 @@
 
       useEffect(() => { fetchEvents(); }, [fetchEvents]);
 
-      // Refresco silencioso — no muestra pantalla de carga
       useEffect(() => {
         async function silentRefresh() {
           try {
@@ -98,9 +99,7 @@
             }
           } catch {}
         }
-        // Cada 30 minutos
         const interval = setInterval(silentRefresh, 30 * 60 * 1000);
-        // Al volver a primer plano
         function onVisible() {
           if (document.visibilityState === "visible") silentRefresh();
         }
@@ -197,6 +196,18 @@
           </div>
 
           {/* ── DAYS SCROLL ── */}
+          {!isView && (
+            <div style={{display:"flex",justifyContent:"flex-end",padding:"8px 10px 0"}}>
+              <button onClick={()=>setShowPast(p=>!p)} style={{
+                background: showPast ? "#6C5CE7" : "white",
+                border:"1.5px solid #6C5CE7", borderRadius:8,
+                padding:"6px 14px", fontSize:13, fontWeight:700,
+                cursor:"pointer", color: showPast ? "white" : "#6C5CE7"
+              }}>
+                {showPast ? "▲ Ocultar pasado" : "▼ Ver pasado"}
+              </button>
+            </div>
+          )}
           <div style={{padding:"10px 10px 40px",display:"flex",flexDirection:"column",gap:0}}>
             {days.map((date,idx) => {
               const key      = toKey(date);
