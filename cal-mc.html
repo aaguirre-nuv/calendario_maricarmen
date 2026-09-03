@@ -69,6 +69,7 @@
       const [form, setForm]       = useState({time:"12:00",text:"",category:"medico"});
       const [status, setStatus]   = useState("loading");
       const [saving, setSaving]   = useState(false);
+      const [showPast, setShowPast] = useState(false);
       const todayRef              = useRef(null);
       const isView                = mode === "view";
       const days                  = buildDays();
@@ -93,7 +94,6 @@
             const json = await r.json();
             if (json.record?.events) {
               setEvents(json.record.events);
-              setLastUpdate(new Date());
             }
           } catch {}
         }
