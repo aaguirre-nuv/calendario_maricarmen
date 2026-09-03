@@ -74,7 +74,7 @@
       const todayRef              = useRef(null);
       const isView                = mode === "view";
       const days                  = buildDays(!isView && showPast);
-      const today                 = days[0];
+      const today                 = new Date(); today.setHours(0,0,0,0);
 
       const fetchEvents = useCallback(async () => {
         setStatus("loading");
