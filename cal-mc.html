@@ -47,10 +47,10 @@
       return `${y}-${m}-${d}`;
     }
 
-    // Build array of Date objects: today + 61 more days (≈2 months)
+    // Build array of Date objects: today + 183 more days (≈6 months)
     function buildDays() {
       const today = new Date(); today.setHours(0,0,0,0);
-      return Array.from({length:62}, (_,i) => {
+      return Array.from({length:184}, (_,i) => {
         const d = new Date(today);
         d.setDate(today.getDate() + i);
         return d;
