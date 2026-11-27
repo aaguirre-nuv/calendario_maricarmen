@@ -61,6 +61,430 @@
       return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate();
     }
 
+    /* ══════════════ MEDICACIÓN (informe de alta del 27/11/2026) ══════════════ */
+
+    const MED_START = new Date(2026,10,28); // Día 1 del tratamiento nuevo
+
+    function addDays(d,n)   { const x=new Date(d); x.setDate(x.getDate()+n); return x; }
+    function addMonths(d,n) { const x=new Date(d); x.setMonth(x.getMonth()+n); return x; }
+    function dayNum(date)   { return Math.round((date-MED_START)/86400000)+1; }
+    function dateOfDay(n)   { return addDays(MED_START,n-1); }
+    function fmtDate(d)     { return `${d.getDate()}/${d.getMonth()+1}`; }
+    function fmtTime(iso)   { const d=new Date(iso); return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`; }
+    function fmtDateTime(iso){ const d=new Date(iso); return `${fmtDate(d)} ${fmtTime(iso)}`; }
+
+    const LAST_DAY_3M = dayNum(addMonths(MED_START,3))-1;
+    const LAST_DAY_6M = dayNum(addMonths(MED_START,6))-1;
+
+    const MOMENTS = [
+      { id:"ayunas",      label:"EN AYUNAS",           short:"en ayunas",      sub:"Al levantarse, antes de comer nada", emoji:"🌅", end:10 },
+      { id:"predesayuno", label:"ANTES DEL DESAYUNO",  short:"antes del desayuno", sub:"20 minutos antes de desayunar", emoji:"⏰", end:10 },
+      { id:"desayuno",    label:"DESAYUNO",            short:"desayuno",       emoji:"☕", end:11 },
+      { id:"comida",      label:"COMIDA",              short:"comida",         emoji:"🍽️", end:16 },
+      { id:"cena",        label:"CENA",                short:"cena",           emoji:"🌙", end:23 },
+      { id:"inyeccion",   label:"INYECCIÓN DIARIA",    short:"inyección",      sub:"Siempre a la misma hora", emoji:"💉", end:23 },
+      { id:"dia",         label:"DURANTE EL DÍA",      short:"al día",         emoji:"🥤", end:22 },
+    ];
+
+    // Bajada de prednisona (cada paso dura `days` días; el último se mantiene)
+    const PRED_STEPS = [
+      { days:3,    take:{desayuno:2,   cena:1}   },
+      { days:3,    take:{desayuno:1,   cena:1}   },
+      { days:3,    take:{desayuno:1,   cena:0.5} },
+      { days:3,    take:{desayuno:0.5, cena:0.5} },
+      { days:null, take:{desayuno:0.5}           }, // dosis habitual 5 mg: mantener
+    ];
+
+    // from/to = día del tratamiento (1 = 28/11/2026). Sin `to` = indefinido.
+    const MEDS = [
+      { id:"ferplex",       name:"Ferplex (hierro oral)",      unit:"vial",       isNew:true, to:90,          take:{ayunas:1} },
+      { id:"omeprazol",     name:"Omeprazol 20 mg",            unit:"comprimido", isNew:true,                 take:{predesayuno:1} },
+      { id:"moxifloxacino", name:"Moxifloxacino 400 mg",       unit:"comprimido", isNew:true, to:5,           take:{desayuno:1}, tag:"Antibiótico" },
+      { id:"prednisona",    name:"Prednisona 10 mg",           unit:"comprimido", isNew:true, steps:PRED_STEPS, tag:"Dosis en bajada: ¡ojo a los cambios!" },
+      { id:"furosemida",    name:"Furosemida 40 mg",           unit:"comprimido", isNew:true, to:5,           take:{desayuno:0.5} },
+      { id:"paracetamol",   name:"Paracetamol 1 g",            unit:"comprimido", isNew:true,                 take:{desayuno:1,comida:1,cena:1} },
+      { id:"acfol",         name:"Acfol (ácido fólico) 5 mg",  unit:"comprimido", isNew:true, to:LAST_DAY_6M, take:{desayuno:1} },
+      { id:"paroxetina",    name:"Paroxetina 10 mg",           unit:"comprimido",                             take:{desayuno:0.5} },
+      { id:"levogastrol",   name:"Levogastrol 25 mg",          unit:"comprimido",                             take:{desayuno:1} },
+      { id:"tebofortan",    name:"Tebofortán 240 mg",          unit:"comprimido",                             take:{desayuno:1} },
+      { id:"zimbus",        name:"Zimbus Breezhaler",          unit:"inhalación",                             take:{desayuno:1}, tag:"Inhalador" },
+      { id:"yellox",        name:"Yellox 0,9 mg/ml colirio",   unit:"colirio",                                take:{desayuno:1,cena:1}, doseText:"Colirio" },
+      { id:"demilos",       name:"Demilos 600 mg/2000 UI",     unit:"comprimido", isNew:true,                 take:{comida:1} },
+      { id:"adiro",         name:"Adiro 100 mg",               unit:"comprimido",                             take:{comida:1} },
+      { id:"atorvastatina", name:"Atorvastatina 40 mg",        unit:"comprimido",                             take:{cena:1} },
+      { id:"tamsulosina",   name:"Tamsulosina 0,4 mg",         unit:"cápsula",    isNew:true,                 take:{cena:1} },
+      { id:"enoxaparina",   name:"Enoxaparina 40 mg",          unit:"inyección",  isNew:true, to:30,          take:{inyeccion:1}, note:"Bajo la piel. Alternar el sitio y evitar la línea media del abdomen." },
+      { id:"aduben",        name:"Aduben Advance fibra",       unit:"envase",     isNew:true, to:LAST_DAY_3M, take:{dia:2}, split:true, tag:"Suplemento nutricional" },
+    ];
+
+    // Solo si hace falta
+    const PRN = [
+      { id:"tramadol", name:"Tramadol 50 mg", dose:"1 comprimido",          rule:"Solo si hay más dolor a pesar del paracetamol. Como mucho cada 12 horas.", minHours:12 },
+      { id:"movicol",  name:"Movicol 10 g",   dose:"1 sobre en el desayuno", rule:"Solo si hay estreñimiento." },
+    ];
+
+    // Cada cierto tiempo
+    const PERIODIC = [
+      { id:"metoject",  name:"Metoject pen 15 mg", dose:"1 vez a la semana",                 everyDays:7 },
+      { id:"denosumab", name:"Denosumab 60 mg",    dose:"Inyección bajo la piel cada 6 meses", everyMonths:6, firstPending:"Al alta quedó PENDIENTE la 1ª dosis." },
+    ];
+
+    // Retirados en el alta: NO dar
+    const RETIRED = [
+      { name:"Actonel (ácido risedrónico)" },
+    ];
+
+    const REMINDERS = [
+      "Retirar la sonda vesical a los 7 días en el centro de salud (hacia el 4/12).",
+      "Retirada de grapas por enfermería del centro de salud a las 3 semanas de la cirugía (operada el 19/11, hacia el 10/12), si la herida ha cicatrizado.",
+      "Revisión en Consultas Externas de Traumatología (planta -1) en 3 semanas, con radiografía de control.",
+      "Frío local 10-15 minutos cada 3-4 horas.",
+      "Mantener la herida limpia y seca.",
+      "Andar con ayuda de andador o muletas. Traslados en ambulancia.",
+      "Control del dolor: médico de atención primaria.",
+    ];
+
+    const PLURAL = { comprimido:"comprimidos", "cápsula":"cápsulas", vial:"viales", envase:"envases", "inyección":"inyecciones", "inhalación":"inhalaciones", sobre:"sobres" };
+
+    function fmtQty(q, unit) {
+      const whole = Math.floor(q), half = q - whole === 0.5;
+      if (whole===0 && half) return `½ ${unit}`;
+      const n = half ? `${whole} y ½` : String(whole);
+      return `${n} ${q>1 ? (PLURAL[unit]||unit) : unit}`;
+    }
+
+    function doseLabel(med, q) {
+      if (med.doseText) return med.doseText;
+      return fmtQty(q, med.unit);
+    }
+
+    function takeOn(med, d) {
+      if (d < 1) return {};
+      if (med.steps) {
+        let start = 1;
+        for (const s of med.steps) {
+          if (s.days===null || d < start+s.days) return s.take;
+          start += s.days;
+        }
+        return {};
+      }
+      if (d < (med.from||1) || (med.to && d > med.to)) return {};
+      return med.take;
+    }
+
+    function describeTake(med, take) {
+      return MOMENTS.filter(m=>take[m.id]).map(m => `${doseLabel(med,take[m.id])} ${m.id==="dia"?"al día":m.id==="inyeccion"?"al día":"en "+m.short}`).join(" + ");
+    }
+
+    function changesAfter(fromDay, span) {
+      const out = [];
+      for (let k=Math.max(fromDay,1)+1; k<=fromDay+span; k++) {
+        const msgs = [];
+        for (const med of MEDS) {
+          const a = takeOn(med,k-1), b = takeOn(med,k);
+          if (JSON.stringify(a)===JSON.stringify(b)) continue;
+          if (!Object.keys(b).length)      msgs.push({kind:"stop",   text:`Se deja ${med.name}`});
+          else if (!Object.keys(a).length) msgs.push({kind:"start",  text:`Empieza ${med.name}: ${describeTake(med,b)}`});
+          else                             msgs.push({kind:"change", text:`${med.name}: pasa a ${describeTake(med,b)}`});
+        }
+        if (msgs.length) out.push({day:k, date:dateOfDay(k), msgs});
+      }
+      return out;
+    }
+
+    function MedsView({ meds, updateMeds }) {
+      const realToday = new Date(); realToday.setHours(0,0,0,0);
+      const [sel, setSel] = useState(() => realToday < MED_START ? MED_START : realToday);
+      const [who, setWho] = useState(() => { try { return localStorage.getItem("calmc-who") || ""; } catch { return ""; } });
+      const [showAll, setShowAll] = useState(false);
+      const [, setTick] = useState(0);
+
+      // refresca cada minuto para que los avisos "FALTA" se actualicen
+      useEffect(() => { const t=setInterval(()=>setTick(x=>x+1), 60000); return ()=>clearInterval(t); }, []);
+
+      function pickWho(n) { setWho(n); try { localStorage.setItem("calmc-who", n); } catch {} }
+
+      const d        = dayNum(sel);
+      const key      = toKey(sel);
+      const checks   = (meds.checks||{})[key] || {};
+      const log      = meds.log || [];
+      const isToday  = isSameDay(sel, realToday);
+      const isFuture = sel > realToday;
+      const isPast   = sel < realToday;
+      const nowH     = new Date().getHours();
+
+      const groups = MOMENTS.map(m => {
+        const items = [];
+        for (const med of MEDS) {
+          const q = takeOn(med,d)[m.id];
+          if (!q) continue;
+          const prev = takeOn(med,d-1)[m.id] || 0;
+          const nextAll = takeOn(med,d+1);
+          const next = nextAll[m.id] || 0;
+          const badges = [];
+          if (med.isNew && d<=3)            badges.push({t:"NUEVA", c:"#1A8A6A"});
+          if (d>1 && prev && prev!==q)      badges.push({t:"⚠️ CAMBIA LA DOSIS HOY", c:"#C0392B"});
+          if (!Object.keys(nextAll).length) badges.push({t:"ÚLTIMO DÍA", c:"#C47000"});
+          else if (!next)                   badges.push({t:"MAÑANA YA NO", c:"#C47000"});
+          else if (next!==q)                badges.push({t:`MAÑANA: ${doseLabel(med,next)}`, c:"#C47000"});
+          const parts = med.split ? Array.from({length:q},(_,i)=>i+1) : [null];
+          for (const p of parts) {
+            items.push({
+              itemId: `${m.id}:${med.id}${p?":"+p:""}`,
+              med, badges,
+              dose: med.split ? `${fmtQty(1,med.unit)} (${p}º de ${q})` : doseLabel(med,q),
+            });
+          }
+        }
+        const done = items.filter(it=>checks[it.itemId]).length;
+        const late = items.length>0 && done<items.length && (isPast || (isToday && nowH>=m.end));
+        return {...m, items, done, late};
+      }).filter(g=>g.items.length);
+
+      const total = groups.reduce((s,g)=>s+g.items.length,0);
+      const done  = groups.reduce((s,g)=>s+g.done,0);
+
+      function needWho() {
+        if (who) return false;
+        alert("Primero elige arriba quién eres (Laura o Cristina).");
+        return true;
+      }
+
+      function toggle(it) {
+        if (isFuture) { alert("Ese día todavía no ha llegado."); return; }
+        if (needWho()) return;
+        const cur = checks[it.itemId];
+        if (cur && !confirm(`¿Desmarcar ${it.med.name}?\nLo marcó ${cur.by} a las ${fmtTime(cur.at)}.`)) return;
+        const entry = cur ? null : {by:who, at:new Date().toISOString()};
+        updateMeds(m => {
+          m.checks = m.checks || {};
+          const day = m.checks[key] = m.checks[key] || {};
+          if (entry) day[it.itemId] = entry; else delete day[it.itemId];
+          if (!Object.keys(day).length) delete m.checks[key];
+          return m;
+        });
+      }
+
+      function lastOf(medId) {
+        return log.filter(e=>e.med===medId).sort((a,b)=>b.at.localeCompare(a.at))[0];
+      }
+
+      function addLog(medId, name, warn) {
+        if (needWho()) return;
+        if (warn && !confirm(warn)) return;
+        if (!warn && !confirm(`¿Apuntar ${name} ahora (${fmtTime(new Date().toISOString())})?`)) return;
+        const entry = {id:`${Date.now()}-${Math.random().toString(36).slice(2,7)}`, med:medId, at:new Date().toISOString(), by:who};
+        updateMeds(m => { m.log = [...(m.log||[]), entry]; return m; });
+      }
+
+      function removeLog(e, name) {
+        if (!confirm(`¿Borrar la toma de ${name} del ${fmtDateTime(e.at)} (${e.by})?`)) return;
+        updateMeds(m => { m.log = (m.log||[]).filter(x=>x.id!==e.id); return m; });
+      }
+
+      const changes = changesAfter(d, 30).slice(0,6);
+      const card = {background:"white",borderRadius:18,border:"2px solid #DCDCDC",marginBottom:12,overflow:"hidden",boxShadow:"0 2px 8px rgba(0,0,0,0.05)"};
+      const secTitle = {padding:"18px 4px 8px",fontSize:13,fontWeight:900,color:"#999",letterSpacing:3,textTransform:"uppercase",borderBottom:"2px solid #DCDCDC",marginBottom:10};
+      const btn = {background:"#6C5CE7",color:"white",border:"none",borderRadius:10,padding:"10px 14px",fontSize:14,fontWeight:800,cursor:"pointer"};
+
+      const dayLabel = isToday ? "HOY" : isSameDay(sel, addDays(realToday,1)) ? "MAÑANA" : isSameDay(sel, addDays(realToday,-1)) ? "AYER" : "";
+
+      return (
+        <div style={{padding:"10px 10px 40px"}}>
+
+          {/* ¿Quién marca? */}
+          <div style={{...card,padding:"12px 14px",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",border:who?"2px solid #DCDCDC":"3px solid #E74C3C"}}>
+            <div style={{fontSize:14,fontWeight:800,color:"#555"}}>¿Quién marca?</div>
+            {["Laura","Cristina"].map(n=>(
+              <button key={n} onClick={()=>pickWho(n)} style={{background:who===n?"#6C5CE7":"white",color:who===n?"white":"#444",border:`2px solid ${who===n?"#6C5CE7":"#DEDEDE"}`,borderRadius:20,padding:"7px 16px",fontSize:15,fontWeight:800,cursor:"pointer"}}>{n}</button>
+            ))}
+          </div>
+
+          {/* Retirados */}
+          <div style={{...card,padding:"12px 14px",background:"#FFF5F5",border:"3px solid #E74C3C"}}>
+            <div style={{fontSize:13,fontWeight:900,color:"#C0392B",letterSpacing:1}}>⛔ YA NO SE TOMA (retirado en el alta)</div>
+            {RETIRED.map(r=><div key={r.name} style={{fontSize:17,fontWeight:800,color:"#C0392B",marginTop:4}}>{r.name}</div>)}
+          </div>
+
+          {/* Navegación por días */}
+          <div style={{...card,padding:"10px",display:"flex",alignItems:"center",gap:8}}>
+            <button disabled={d<=1} onClick={()=>setSel(addDays(sel,-1))} style={{...btn,opacity:d<=1?0.3:1,fontSize:20,padding:"8px 14px"}}>◀</button>
+            <div style={{flex:1,textAlign:"center"}}>
+              <div style={{fontSize:20,fontWeight:900,color:"#333"}}>{DAY_NAMES[sel.getDay()]} {sel.getDate()}</div>
+              <div style={{fontSize:13,fontWeight:700,color:"#888"}}>{MONTH_NAMES[sel.getMonth()].toLowerCase()} · día {d} del tratamiento</div>
+              {dayLabel && <div style={{display:"inline-block",marginTop:4,background:"#6C5CE7",color:"white",borderRadius:6,padding:"2px 8px",fontSize:11,fontWeight:800,letterSpacing:1}}>{dayLabel}</div>}
+            </div>
+            <button onClick={()=>setSel(addDays(sel,1))} style={{...btn,fontSize:20,padding:"8px 14px"}}>▶</button>
+          </div>
+          {!isToday && realToday>=MED_START && (
+            <div style={{textAlign:"center",marginBottom:10}}>
+              <button onClick={()=>setSel(realToday)} style={{...btn,background:"white",color:"#6C5CE7",border:"2px solid #6C5CE7"}}>⭐ Volver a hoy</button>
+            </div>
+          )}
+          {realToday<MED_START && (
+            <div style={{...card,padding:"12px 14px",background:"#FFFBF0",border:"2px solid #F39C12",fontSize:14,fontWeight:700,color:"#8A5A00"}}>
+              El tratamiento nuevo empieza mañana, {fmtDate(MED_START)}, con el desayuno. Aquí ya puedes ver qué tocará.
+            </div>
+          )}
+
+          {/* Progreso */}
+          <div style={{...card,padding:"12px 14px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:15,fontWeight:800,color:"#444",marginBottom:8}}>
+              <span>{isFuture ? "Vista previa" : "Tomas marcadas"}</span>
+              <span style={{color:done===total?"#1A8A6A":"#6C5CE7"}}>{done} de {total}</span>
+            </div>
+            <div style={{height:10,background:"#EEE",borderRadius:5,overflow:"hidden"}}>
+              <div style={{height:"100%",width:`${total?done/total*100:0}%`,background:done===total?"#27AE80":"#6C5CE7",transition:"width .3s"}}/>
+            </div>
+          </div>
+
+          {/* Tomas del día */}
+          {groups.map(g=>{
+            const complete = g.done===g.items.length;
+            const head = complete ? {bg:"#27AE80",fg:"white"} : g.late ? {bg:"#E74C3C",fg:"white"} : {bg:"#DCDCDC",fg:"#333"};
+            return (
+              <div key={g.id} style={{...card,border:`2px solid ${complete?"#27AE80":g.late?"#E74C3C":"#D8D8D8"}`}}>
+                <div style={{background:head.bg,color:head.fg,padding:"10px 14px",display:"flex",alignItems:"center",gap:10}}>
+                  <span style={{fontSize:26}}>{g.emoji}</span>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:17,fontWeight:900,letterSpacing:1}}>{g.label}</div>
+                    {g.sub && <div style={{fontSize:12,fontWeight:700,opacity:0.85}}>{g.sub}</div>}
+                  </div>
+                  <div style={{fontSize:13,fontWeight:900,whiteSpace:"nowrap"}}>{complete ? "✓ HECHO" : g.late ? `⚠️ FALTA ${g.items.length-g.done}` : `${g.done}/${g.items.length}`}</div>
+                </div>
+                {g.items.map(it=>{
+                  const c = checks[it.itemId];
+                  return (
+                    <div key={it.itemId} onClick={()=>toggle(it)} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 14px",borderTop:"1px solid #EEE",cursor:isFuture?"default":"pointer",background:c?"#F0FAF6":"white"}}>
+                      <div style={{width:44,height:44,flexShrink:0,borderRadius:12,border:`3px solid ${c?"#27AE80":"#BBB"}`,background:c?"#27AE80":"white",color:"white",fontSize:28,fontWeight:900,display:"flex",alignItems:"center",justifyContent:"center",opacity:isFuture?0.35:1}}>{c?"✓":""}</div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:17,fontWeight:800,color:"#222",textDecoration:c?"line-through":"none"}}>{it.med.name}</div>
+                        <div style={{fontSize:19,fontWeight:900,color:"#6C5CE7"}}>{it.dose}</div>
+                        {it.med.tag  && <div style={{fontSize:12,fontWeight:700,color:"#888"}}>{it.med.tag}</div>}
+                        {it.med.note && <div style={{fontSize:12,fontWeight:700,color:"#888"}}>{it.med.note}</div>}
+                        {it.badges.length>0 && (
+                          <div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:5}}>
+                            {it.badges.map(b=><span key={b.t} style={{background:b.c,color:"white",borderRadius:6,padding:"2px 7px",fontSize:11,fontWeight:900,letterSpacing:0.5}}>{b.t}</span>)}
+                          </div>
+                        )}
+                        {c && <div style={{fontSize:12,fontWeight:800,color:"#1A8A6A",marginTop:4}}>✓ {c.by} · {fmtTime(c.at)}</div>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+
+          {/* Solo si hace falta */}
+          <div style={secTitle}>Solo si hace falta</div>
+          {PRN.map(p=>{
+            const last = lastOf(p.id);
+            const hours = last ? (Date.now()-new Date(last.at))/3600000 : null;
+            const tooSoon = p.minHours && hours!==null && hours < p.minHours;
+            const nextAt = tooSoon ? new Date(new Date(last.at).getTime()+p.minHours*3600000).toISOString() : null;
+            const recent = log.filter(e=>e.med===p.id).sort((a,b)=>b.at.localeCompare(a.at)).slice(0,3);
+            return (
+              <div key={p.id} style={{...card,padding:"12px 14px"}}>
+                <div style={{fontSize:17,fontWeight:800,color:"#222"}}>{p.name}</div>
+                <div style={{fontSize:16,fontWeight:900,color:"#6C5CE7"}}>{p.dose}</div>
+                <div style={{fontSize:12,fontWeight:700,color:"#888",marginBottom:8}}>{p.rule}</div>
+                {tooSoon && <div style={{background:"#FFF5F5",border:"2px solid #E74C3C",borderRadius:10,padding:"8px 10px",fontSize:14,fontWeight:800,color:"#C0392B",marginBottom:8}}>⛔ Última toma hace {Math.floor(hours)} h. No dar otra hasta las {fmtDateTime(nextAt)}.</div>}
+                <button onClick={()=>addLog(p.id, p.name, tooSoon ? `⚠️ Han pasado solo ${Math.floor(hours)} horas desde la última toma de ${p.name} (mínimo ${p.minHours} h).\n¿Seguro que quieres apuntar otra?` : null)} style={{...btn,background:tooSoon?"#BBB":"#6C5CE7"}}>+ Apuntar toma ahora</button>
+                {recent.length>0 && (
+                  <div style={{marginTop:10,display:"flex",flexDirection:"column",gap:4}}>
+                    {recent.map(e=>(
+                      <div key={e.id} style={{display:"flex",alignItems:"center",gap:8,fontSize:13,fontWeight:700,color:"#555"}}>
+                        <span style={{flex:1}}>✓ {fmtDateTime(e.at)} · {e.by}</span>
+                        <button onClick={()=>removeLog(e,p.name)} style={{background:"none",border:"none",color:"#C0392B",fontSize:13,fontWeight:800,cursor:"pointer"}}>Borrar</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* Cada cierto tiempo */}
+          <div style={secTitle}>Cada cierto tiempo</div>
+          {PERIODIC.map(p=>{
+            const last = lastOf(p.id);
+            const due = last ? (p.everyDays ? addDays(new Date(last.at),p.everyDays) : addMonths(new Date(last.at),p.everyMonths)) : null;
+            if (due) due.setHours(0,0,0,0);
+            const overdue = due && due <= realToday;
+            return (
+              <div key={p.id} style={{...card,padding:"12px 14px",border:(!last&&p.firstPending)||overdue?"3px solid #E74C3C":"2px solid #DCDCDC"}}>
+                <div style={{fontSize:17,fontWeight:800,color:"#222"}}>{p.name}</div>
+                <div style={{fontSize:16,fontWeight:900,color:"#6C5CE7"}}>{p.dose}</div>
+                {!last && p.firstPending && <div style={{fontSize:14,fontWeight:800,color:"#C0392B",margin:"6px 0"}}>⚠️ {p.firstPending}</div>}
+                {!last && !p.firstPending && <div style={{fontSize:13,fontWeight:700,color:"#888",margin:"6px 0"}}>Todavía no se ha apuntado ninguna. Márcala el día que se ponga.</div>}
+                {last && <div style={{fontSize:13,fontWeight:700,color:"#555",margin:"6px 0"}}>Última: {fmtDateTime(last.at)} ({last.by}) · <b style={{color:overdue?"#C0392B":"#1A8A6A"}}>{overdue?"⚠️ TOCA YA":"Próxima"}: {fmtDate(due)}{p.everyMonths?`/${due.getFullYear()}`:""}</b></div>}
+                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  <button onClick={()=>addLog(p.id, p.name, null)} style={btn}>+ Apuntar puesta hoy</button>
+                  {last && <button onClick={()=>removeLog(last,p.name)} style={{background:"none",border:"none",color:"#C0392B",fontSize:13,fontWeight:800,cursor:"pointer"}}>Borrar última</button>}
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Próximos cambios */}
+          <div style={secTitle}>Próximos cambios</div>
+          <div style={{...card,padding:"6px 14px"}}>
+            {changes.length===0 && <div style={{padding:"8px 0",fontSize:14,fontWeight:700,color:"#888"}}>Sin cambios en los próximos 30 días.</div>}
+            {changes.map(ch=>(
+              <div key={ch.day} style={{padding:"10px 0",borderBottom:"1px solid #EEE"}}>
+                <div style={{fontSize:14,fontWeight:900,color:"#333"}}>{DAY_NAMES[ch.date.getDay()].charAt(0)+DAY_NAMES[ch.date.getDay()].slice(1).toLowerCase()} {fmtDate(ch.date)}</div>
+                {ch.msgs.map((m,i)=>(
+                  <div key={i} style={{fontSize:14,fontWeight:700,color:m.kind==="stop"?"#C47000":m.kind==="change"?"#C0392B":"#1A8A6A",marginTop:3}}>
+                    {m.kind==="stop"?"⏹️":m.kind==="change"?"🔄":"▶️"} {m.text}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+
+          {/* Lista completa */}
+          <button onClick={()=>setShowAll(s=>!s)} style={{...btn,width:"100%",background:"white",color:"#6C5CE7",border:"2px solid #6C5CE7",marginTop:6,marginBottom:12}}>
+            {showAll ? "▲ Ocultar lista completa" : "📋 Ver lista completa de la medicación"}
+          </button>
+          {showAll && (
+            <div style={{...card,padding:"6px 14px"}}>
+              {MEDS.map(med=>(
+                <div key={med.id} style={{padding:"10px 0",borderBottom:"1px solid #EEE"}}>
+                  <div style={{fontSize:15,fontWeight:800,color:"#222"}}>{med.name}</div>
+                  {med.steps ? (
+                    med.steps.reduce((acc,s)=>{
+                      const from=acc.start, to=s.days===null?null:acc.start+s.days-1;
+                      acc.rows.push(<div key={from} style={{fontSize:13,fontWeight:700,color:"#555"}}>{to?`${fmtDate(dateOfDay(from))} al ${fmtDate(dateOfDay(to))}`:`Desde el ${fmtDate(dateOfDay(from))}, mantener`}: {describeTake(med,s.take)}</div>);
+                      acc.start = to ? to+1 : acc.start;
+                      return acc;
+                    },{start:1,rows:[]}).rows
+                  ) : (
+                    <div style={{fontSize:13,fontWeight:700,color:"#555"}}>
+                      {describeTake(med,med.take)} · {med.to ? `del ${fmtDate(dateOfDay(med.from||1))} al ${fmtDate(dateOfDay(med.to))}/${dateOfDay(med.to).getFullYear()}` : (med.isNew ? "de forma indefinida" : "tratamiento habitual")}
+                    </div>
+                  )}
+                </div>
+              ))}
+              {PRN.map(p=><div key={p.id} style={{padding:"10px 0",borderBottom:"1px solid #EEE"}}><div style={{fontSize:15,fontWeight:800,color:"#222"}}>{p.name}</div><div style={{fontSize:13,fontWeight:700,color:"#555"}}>{p.dose}. {p.rule}</div></div>)}
+              {RETIRED.map(r=><div key={r.name} style={{padding:"10px 0",borderBottom:"1px solid #EEE"}}><div style={{fontSize:15,fontWeight:800,color:"#C0392B"}}>⛔ {r.name}</div><div style={{fontSize:13,fontWeight:700,color:"#555"}}>Retirado. No tomar.</div></div>)}
+              {PERIODIC.map(p=><div key={p.id} style={{padding:"10px 0",borderBottom:"1px solid #EEE"}}><div style={{fontSize:15,fontWeight:800,color:"#222"}}>{p.name}</div><div style={{fontSize:13,fontWeight:700,color:"#555"}}>{p.dose}. {p.firstPending||""}</div></div>)}
+            </div>
+          )}
+
+          {/* Recomendaciones */}
+          <div style={secTitle}>Otras recomendaciones del alta</div>
+          <div style={{...card,padding:"6px 14px"}}>
+            {REMINDERS.map((r,i)=><div key={i} style={{padding:"8px 0",borderBottom:i<REMINDERS.length-1?"1px solid #EEE":"none",fontSize:14,fontWeight:700,color:"#444"}}>• {r}</div>)}
+          </div>
+
+          <div style={{fontSize:12,color:"#999",fontWeight:600,textAlign:"center",padding:"10px 10px 0",lineHeight:1.5}}>
+            Copiado del informe de alta del 27/11/2026. Ante cualquier duda, manda el informe en papel o lo que diga el médico.
+          </div>
+        </div>
+      );
+    }
+
     function App() {
       const [mode, setMode]       = useState("view");
       const [events, setEvents]   = useState({});
@@ -70,6 +494,9 @@
       const [status, setStatus]   = useState("loading");
       const [saving, setSaving]   = useState(false);
       const [showPast, setShowPast] = useState(false);
+      const [meds, setMeds]       = useState({checks:{},log:[]});
+      const [saveError, setSaveError] = useState(false);
+      const [tab, setTab]         = useState(() => location.hash==="#medicacion" ? "meds" : "cal");
       const todayRef              = useRef(null);
       const isView                = mode === "view";
       const days                  = buildDays();
@@ -81,6 +508,7 @@
           const r    = await fetch(`${BIN_URL}/latest`, {headers:{"X-Master-Key":API_KEY}});
           const json = await r.json();
           setEvents(json.record?.events || {});
+          setMeds(json.record?.meds || {checks:{},log:[]});
           setStatus("ok");
         } catch { setStatus("error"); }
       }, []);
@@ -94,6 +522,9 @@
             const json = await r.json();
             if (json.record?.events) {
               setEvents(json.record.events);
+            }
+            if (json.record?.meds) {
+              setMeds(json.record.meds);
             }
           } catch {}
         }
@@ -115,17 +546,57 @@
         }
       }, [status]);
 
+      // Lee la última versión guardada para no pisar lo que haya marcado otra persona
+      async function fetchRecord() {
+        const r    = await fetch(`${BIN_URL}/latest`, {headers:{"X-Master-Key":API_KEY}});
+        const json = await r.json();
+        if (!json.record) throw new Error("sin datos");
+        return json.record;
+      }
+
+      async function putRecord(record) {
+        const r = await fetch(BIN_URL, {
+          method:"PUT",
+          headers:{"Content-Type":"application/json","X-Master-Key":API_KEY},
+          body: JSON.stringify(record)
+        });
+        if (!r.ok) throw new Error("no guardado");
+      }
+
       async function saveEvents(ne) {
         setEvents(ne);
         setSaving(true);
         try {
-          await fetch(BIN_URL, {
-            method:"PUT",
-            headers:{"Content-Type":"application/json","X-Master-Key":API_KEY},
-            body: JSON.stringify({events:ne})
-          });
-        } catch {}
+          let rec;
+          try { rec = await fetchRecord(); } catch { rec = {meds}; }
+          await putRecord({...rec, events:ne});
+          setSaveError(false);
+        } catch { setSaveError(true); }
         setSaving(false);
+      }
+
+      async function updateMeds(mutate) {
+        const clone = o => JSON.parse(JSON.stringify(o || {checks:{},log:[]}));
+        setMeds(m => mutate(clone(m)));
+        setSaving(true);
+        try {
+          const rec   = await fetchRecord();
+          const fresh = mutate(clone(rec.meds));
+          await putRecord({...rec, meds:fresh});
+          setMeds(fresh);
+          if (rec.events) setEvents(rec.events);
+          setSaveError(false);
+        } catch {
+          setSaveError(true);
+          alert("⚠️ No se ha podido guardar. Revisa la conexión e inténtalo otra vez.");
+        }
+        setSaving(false);
+      }
+
+      function changeTab(t) {
+        setTab(t);
+        try { history.replaceState(null, "", t==="meds" ? "#medicacion" : location.pathname + location.search); } catch {}
+        window.scrollTo(0,0);
       }
 
       function openAdd(key)        { setEditKey(key); setEditIdx(null); setForm({time:"12:00",text:"",category:"medico"}); }
@@ -178,7 +649,7 @@
           {/* ── HEADER fijo ── */}
           <div style={{position:"sticky",top:0,zIndex:10,background:"#5A4FCC",padding:"10px 14px",boxShadow:"0 3px 12px rgba(0,0,0,0.2)"}}>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-              <button onClick={scrollToToday} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:8,color:"white",fontSize:13,fontWeight:700,padding:"7px 12px",cursor:"pointer",letterSpacing:1}}>
+              <button onClick={scrollToToday} style={{visibility:tab==="cal"?"visible":"hidden",background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:8,color:"white",fontSize:13,fontWeight:700,padding:"7px 12px",cursor:"pointer",letterSpacing:1}}>
                 ⭐ HOY
               </button>
               <div style={{color:"white",fontSize:15,fontWeight:900,letterSpacing:0.5}}>
@@ -186,13 +657,22 @@
               </div>
               <div style={{display:"flex",gap:8,alignItems:"center"}}>
                 {saving && <span style={{color:"rgba(255,255,255,0.7)",fontSize:11,fontWeight:600}}>💾</span>}
-                <button onClick={()=>setMode(m=>m==="view"?"edit":"view")} style={{background:"rgba(255,255,255,0.15)",border:"2px solid rgba(255,255,255,0.45)",borderRadius:10,color:"white",fontSize:13,fontWeight:700,padding:"7px 12px",cursor:"pointer"}}>
+                {!saving && saveError && <span title="No se pudo guardar" style={{fontSize:13}}>⚠️</span>}
+                <button onClick={()=>setMode(m=>m==="view"?"edit":"view")} style={{visibility:tab==="cal"?"visible":"hidden",background:"rgba(255,255,255,0.15)",border:"2px solid rgba(255,255,255,0.45)",borderRadius:10,color:"white",fontSize:13,fontWeight:700,padding:"7px 12px",cursor:"pointer"}}>
                   {isView?"✏️ EDITAR":"👁️ VER"}
                 </button>
               </div>
             </div>
+            <div style={{display:"flex",gap:6,marginTop:8}}>
+              {[["cal","📅 CALENDARIO"],["meds","💊 MEDICACIÓN"]].map(([t,l])=>(
+                <button key={t} onClick={()=>changeTab(t)} style={{flex:1,background:tab===t?"white":"rgba(255,255,255,0.12)",color:tab===t?"#5A4FCC":"white",border:"none",borderRadius:8,padding:"8px 0",fontSize:13,fontWeight:800,letterSpacing:1,cursor:"pointer"}}>{l}</button>
+              ))}
+            </div>
           </div>
 
+          {tab==="meds" && <MedsView meds={meds} updateMeds={updateMeds}/>}
+
+          {tab==="cal" && (<>
           {/* ── DAYS SCROLL ── */}
           {!isView && (
             <div style={{display:"flex",justifyContent:"flex-end",padding:"4px 10px 0"}}>
@@ -371,6 +851,7 @@
               );
             })}
           </div>
+          </>)}
 
           {/* ── MODAL ── */}
           {editKey!==null && (
