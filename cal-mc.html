@@ -77,13 +77,13 @@
     const LAST_DAY_6M = dayNum(addMonths(MED_START,6))-1;
 
     const MOMENTS = [
-      { id:"ayunas",      label:"EN AYUNAS",           short:"en ayunas",      sub:"Al levantarse, antes de comer nada", emoji:"🌅", end:10 },
-      { id:"predesayuno", label:"ANTES DEL DESAYUNO",  short:"antes del desayuno", sub:"20 minutos antes de desayunar", emoji:"⏰", end:10 },
-      { id:"desayuno",    label:"DESAYUNO",            short:"desayuno",       emoji:"☕", end:11 },
-      { id:"comida",      label:"COMIDA",              short:"comida",         emoji:"🍽️", end:16 },
-      { id:"cena",        label:"CENA",                short:"cena",           emoji:"🌙", end:23 },
-      { id:"inyeccion",   label:"INYECCIÓN DIARIA",    short:"inyección",      sub:"Siempre a la misma hora", emoji:"💉", end:23 },
-      { id:"dia",         label:"DURANTE EL DÍA",      short:"al día",         emoji:"🥤", end:22 },
+      { id:"ayunas",      label:"EN AYUNAS",           when:"en ayunas",       sub:"Al levantarse, antes de comer nada", emoji:"🌅", end:10 },
+      { id:"predesayuno", label:"ANTES DEL DESAYUNO",  when:"antes del desayuno", sub:"20 minutos antes de desayunar", emoji:"⏰", end:10 },
+      { id:"desayuno",    label:"DESAYUNO",            when:"en desayuno",    emoji:"☕", end:11 },
+      { id:"comida",      label:"COMIDA",              when:"en comida",      emoji:"🍽️", end:16 },
+      { id:"cena",        label:"CENA",                when:"en cena",        emoji:"🌙", end:23 },
+      { id:"inyeccion",   label:"INYECCIÓN DIARIA",    when:"al día",         sub:"Siempre a la misma hora", emoji:"💉", end:23 },
+      { id:"dia",         label:"DURANTE EL DÍA",      when:"al día",         emoji:"🥤", end:22 },
     ];
 
     // Bajada de prednisona (cada paso dura `days` días; el último se mantiene)
@@ -108,7 +108,6 @@
       { id:"levogastrol",   name:"Levogastrol 25 mg",          unit:"comprimido",                             take:{desayuno:1} },
       { id:"tebofortan",    name:"Tebofortán 240 mg",          unit:"comprimido",                             take:{desayuno:1} },
       { id:"zimbus",        name:"Zimbus Breezhaler",          unit:"inhalación",                             take:{desayuno:1}, tag:"Inhalador" },
-      { id:"yellox",        name:"Yellox 0,9 mg/ml colirio",   unit:"colirio",                                take:{desayuno:1,cena:1}, doseText:"Colirio" },
       { id:"demilos",       name:"Demilos 600 mg/2000 UI",     unit:"comprimido", isNew:true,                 take:{comida:1} },
       { id:"adiro",         name:"Adiro 100 mg",               unit:"comprimido",                             take:{comida:1} },
       { id:"atorvastatina", name:"Atorvastatina 40 mg",        unit:"comprimido",                             take:{cena:1} },
@@ -173,7 +172,7 @@
     }
 
     function describeTake(med, take) {
-      return MOMENTS.filter(m=>take[m.id]).map(m => `${doseLabel(med,take[m.id])} ${m.id==="dia"?"al día":m.id==="inyeccion"?"al día":"en "+m.short}`).join(" + ");
+      return MOMENTS.filter(m=>take[m.id]).map(m => `${doseLabel(med,take[m.id])} ${m.when}`).join(" + ");
     }
 
     function changesAfter(fromDay, span) {
@@ -192,11 +191,232 @@
       return out;
     }
 
+    /* ── PASTILLERO SEMANAL (desayuno, comida y cena) ── */
+
+    const PILLBOX_SLOTS = [
+      { id:"desayuno", short:"D", label:"Desayuno" },
+      { id:"comida",   short:"C", label:"Comida"   },
+      { id:"cena",     short:"N", label:"Cena"     },
+    ];
+    const PILLBOX_UNITS = ["comprimido","cápsula"];
+    const WEEK_LETTERS  = ["L","M","X","J","V","S","D"];
+
+    function inPillbox(med) {
+      return PILLBOX_UNITS.includes(med.unit) && PILLBOX_SLOTS.some(s => med.take ? med.take[s.id] : med.steps.some(st=>st.take[s.id]));
+    }
+
+    function mondayOf(date) {
+      const d = new Date(date); d.setHours(0,0,0,0);
+      d.setDate(d.getDate() - ((d.getDay()+6)%7));
+      return d;
+    }
+
+    function fmtFrac(q) {
+      const whole = Math.floor(q), half = q-whole===0.5;
+      if (whole===0) return half ? "½" : "";
+      return half ? `${whole}½` : String(whole);
+    }
+
+    // Lo que no va en el pastillero: se mira en "Hoy"
+    function pillboxExtras() {
+      const momentOf = id => MOMENTS.find(m=>m.id===id);
+      const rows = MEDS.filter(med=>!inPillbox(med)).map(med => {
+        const take = med.take || {};
+        return { name:med.name, text:describeTake(med,take), until: med.to ? `hasta el ${fmtDate(dateOfDay(med.to))}` : "" };
+      });
+      // pastillas de pastillero que además tienen otro momento (no es el caso hoy, pero por si acaso)
+      for (const med of MEDS.filter(inPillbox)) {
+        const other = Object.keys(med.take||{}).filter(k=>!PILLBOX_SLOTS.some(s=>s.id===k));
+        if (other.length) rows.push({ name:med.name, text:other.map(k=>`${doseLabel(med,med.take[k])} ${momentOf(k).when}`).join(" + "), until:"" });
+      }
+      return rows;
+    }
+
+    function PillboxView({ meds, updateMeds, who, needWho }) {
+      const realToday = new Date(); realToday.setHours(0,0,0,0);
+      const [monday, setMonday] = useState(() => mondayOf(realToday < MED_START ? MED_START : realToday));
+      const [mode, setMode]     = useState("medicina");
+
+      const week    = Array.from({length:7}, (_,i)=>addDays(monday,i));
+      const weekKey = toKey(monday);
+      const marks   = (meds.pillbox||{})[weekKey] || {};
+      const qty     = (med, date, slot) => takeOn(med, dayNum(date))[slot] || 0;
+
+      const rows = MEDS.filter(inPillbox).map(med => {
+        const grid  = PILLBOX_SLOTS.map(s => week.map(dt => qty(med,dt,s.id)));
+        const flat  = grid.flat();
+        const total = flat.reduce((a,b)=>a+b,0);
+        const hasHalf = flat.some(q=>q%1!==0);
+        const varies  = grid.some(r => r.some(q=>q!==r[0]));
+        return { med, grid, total, hasHalf, varies };
+      }).filter(r=>r.total>0);
+
+      const done = rows.filter(r=>marks[r.med.id]).length;
+
+      function toggle(r) {
+        if (needWho()) return;
+        const cur = marks[r.med.id];
+        if (cur && !confirm(`¿Desmarcar ${r.med.name}?\nLo marcó ${cur.by} el ${fmtDateTime(cur.at)}.`)) return;
+        const entry = cur ? null : {by:who, at:new Date().toISOString()};
+        updateMeds(m => {
+          m.pillbox = m.pillbox || {};
+          const wk = m.pillbox[weekKey] = m.pillbox[weekKey] || {};
+          if (entry) wk[r.med.id] = entry; else delete wk[r.med.id];
+          if (!Object.keys(wk).length) delete m.pillbox[weekKey];
+          return m;
+        });
+      }
+
+      const card = {background:"white",borderRadius:18,border:"2px solid #DCDCDC",marginBottom:12,overflow:"hidden",boxShadow:"0 2px 8px rgba(0,0,0,0.05)"};
+      const btn  = {background:"#6C5CE7",color:"white",border:"none",borderRadius:10,padding:"10px 14px",fontSize:14,fontWeight:800,cursor:"pointer"};
+      const secTitle = {padding:"18px 4px 8px",fontSize:13,fontWeight:900,color:"#999",letterSpacing:3,textTransform:"uppercase",borderBottom:"2px solid #DCDCDC",marginBottom:10};
+      const cell = {textAlign:"center",fontSize:16,fontWeight:900,padding:"6px 0",borderLeft:"1px solid #EEE"};
+      const thisWeek = isSameDay(monday, mondayOf(realToday));
+      const extras = pillboxExtras();
+
+      return (
+        <>
+          {/* Semana */}
+          <div style={{...card,padding:"10px",display:"flex",alignItems:"center",gap:8}}>
+            <button onClick={()=>setMonday(addDays(monday,-7))} style={{...btn,fontSize:20,padding:"8px 14px"}}>◀</button>
+            <div style={{flex:1,textAlign:"center"}}>
+              <div style={{fontSize:13,fontWeight:800,color:"#888",letterSpacing:1}}>PASTILLERO DE LA SEMANA</div>
+              <div style={{fontSize:18,fontWeight:900,color:"#333"}}>Lunes {fmtDate(week[0])} → domingo {fmtDate(week[6])}</div>
+              {thisWeek && <div style={{display:"inline-block",marginTop:4,background:"#6C5CE7",color:"white",borderRadius:6,padding:"2px 8px",fontSize:11,fontWeight:800,letterSpacing:1}}>ESTA SEMANA</div>}
+            </div>
+            <button onClick={()=>setMonday(addDays(monday,7))} style={{...btn,fontSize:20,padding:"8px 14px"}}>▶</button>
+          </div>
+
+          {week[0] < MED_START && (
+            <div style={{...card,padding:"12px 14px",background:"#FFFBF0",border:"2px solid #F39C12",fontSize:14,fontWeight:700,color:"#8A5A00"}}>
+              El tratamiento nuevo empieza el {fmtDate(MED_START)}: los días anteriores salen vacíos.
+            </div>
+          )}
+
+          {/* Progreso */}
+          <div style={{...card,padding:"12px 14px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:15,fontWeight:800,color:"#444",marginBottom:8}}>
+              <span>Medicinas puestas en el pastillero</span>
+              <span style={{color:done===rows.length?"#1A8A6A":"#6C5CE7"}}>{done} de {rows.length}</span>
+            </div>
+            <div style={{height:10,background:"#EEE",borderRadius:5,overflow:"hidden"}}>
+              <div style={{height:"100%",width:`${rows.length?done/rows.length*100:0}%`,background:done===rows.length?"#27AE80":"#6C5CE7",transition:"width .3s"}}/>
+            </div>
+            {done===rows.length && rows.length>0 && <div style={{marginTop:8,fontSize:14,fontWeight:900,color:"#1A8A6A"}}>✓ Pastillero de esta semana completo</div>}
+          </div>
+
+          {/* Modo */}
+          <div style={{display:"flex",gap:6,marginBottom:12}}>
+            {[["medicina","💊 Por medicina"],["dia","📅 Por día"]].map(([k,l])=>(
+              <button key={k} onClick={()=>setMode(k)} style={{flex:1,background:mode===k?"#6C5CE7":"white",color:mode===k?"white":"#6C5CE7",border:"2px solid #6C5CE7",borderRadius:10,padding:"9px 0",fontSize:14,fontWeight:800,cursor:"pointer"}}>{l}</button>
+            ))}
+          </div>
+
+          {mode==="medicina" && (
+            <>
+              <div style={{fontSize:13,fontWeight:700,color:"#888",margin:"0 4px 10px",lineHeight:1.4}}>
+                Coge una caja, reparte las pastillas como indica la cuadrícula (D = desayuno, C = comida, N = cena) y pulsa «Puesta».
+              </div>
+              {rows.map(r=>{
+                const c = marks[r.med.id];
+                return (
+                  <div key={r.med.id} style={{...card,border:`2px solid ${c?"#27AE80":r.varies?"#E74C3C":"#DCDCDC"}`}}>
+                    <div style={{padding:"12px 14px 8px",background:c?"#F0FAF6":"white"}}>
+                      <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:17,fontWeight:800,color:"#222"}}>{r.med.name}</div>
+                          <div style={{fontSize:13,fontWeight:700,color:"#666"}}>En la semana: {fmtQty(r.total,r.med.unit)}</div>
+                        </div>
+                        <button onClick={()=>toggle(r)} style={{...btn,background:c?"#27AE80":"#6C5CE7",flexShrink:0}}>{c?"✓ Puesta":"Puesta"}</button>
+                      </div>
+                      <div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:6}}>
+                        {r.varies  && <span style={{background:"#C0392B",color:"white",borderRadius:6,padding:"2px 7px",fontSize:11,fontWeight:900}}>⚠️ NO ES IGUAL TODOS LOS DÍAS</span>}
+                        {r.hasHalf && <span style={{background:"#C47000",color:"white",borderRadius:6,padding:"2px 7px",fontSize:11,fontWeight:900}}>✂️ HAY QUE PARTIR</span>}
+                      </div>
+                      {c && <div style={{fontSize:12,fontWeight:800,color:"#1A8A6A",marginTop:4}}>✓ {c.by} · {fmtDateTime(c.at)}</div>}
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"34px repeat(7,1fr)",borderTop:"1px solid #EEE"}}>
+                      <div/>
+                      {week.map((dt,i)=><div key={i} style={{...cell,fontSize:12,color:"#888",background:"#F7F7F7"}}>{WEEK_LETTERS[i]}<br/>{dt.getDate()}</div>)}
+                      {PILLBOX_SLOTS.map((s,si)=>(
+                        <React.Fragment key={s.id}>
+                          <div style={{...cell,fontSize:13,color:"#888",borderLeft:"none",borderTop:"1px solid #EEE",background:"#F7F7F7"}}>{s.short}</div>
+                          {r.grid[si].map((q,i)=>(
+                            <div key={i} style={{...cell,borderTop:"1px solid #EEE",color:q%1!==0?"#C47000":"#6C5CE7",background:q?"white":"#FAFAFA"}}>{q?fmtFrac(q):"·"}</div>
+                          ))}
+                        </React.Fragment>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </>
+          )}
+
+          {mode==="dia" && week.map((dt,i)=>{
+            const before = dt < MED_START;
+            return (
+              <div key={i} style={{...card}}>
+                <div style={{background:"#DCDCDC",padding:"8px 14px",fontSize:16,fontWeight:900,color:"#333"}}>
+                  {DAY_NAMES[dt.getDay()]} {dt.getDate()}
+                </div>
+                {before ? (
+                  <div style={{padding:"10px 14px",fontSize:14,color:"#AAA",fontWeight:700}}>Antes del tratamiento nuevo</div>
+                ) : (
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)"}}>
+                    {PILLBOX_SLOTS.map((s,si)=>{
+                      const items = rows.map(r=>({med:r.med, q:r.grid[si][i]})).filter(x=>x.q);
+                      return (
+                        <div key={s.id} style={{padding:"8px 8px 10px",borderLeft:si?"1px solid #EEE":"none"}}>
+                          <div style={{fontSize:12,fontWeight:900,color:"#888",letterSpacing:1,marginBottom:4,textTransform:"uppercase"}}>{s.label}</div>
+                          {items.map(x=>(
+                            <div key={x.med.id} style={{fontSize:13,fontWeight:700,color:"#333",lineHeight:1.3,marginBottom:4}}>
+                              <b style={{color:x.q%1!==0?"#C47000":"#6C5CE7"}}>{fmtFrac(x.q)}</b> {x.med.name.replace(/ \(.*\)/,"")}
+                            </div>
+                          ))}
+                          <div style={{fontSize:11,fontWeight:800,color:"#AAA"}}>{items.length} {items.length===1?"medicina":"medicinas"}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* Extras */}
+          <div style={secTitle}>No van en el pastillero</div>
+          <div style={{...card,padding:"6px 14px",background:"#FFFBF0",border:"2px solid #F39C12"}}>
+            <div style={{padding:"8px 0",fontSize:13,fontWeight:800,color:"#8A5A00"}}>Esto hay que darlo aparte: mirar cada día la pestaña «📋 Hoy».</div>
+            {extras.map((x,i)=>(
+              <div key={i} style={{padding:"8px 0",borderTop:"1px solid #F3E2C0"}}>
+                <div style={{fontSize:15,fontWeight:800,color:"#222"}}>{x.name}</div>
+                <div style={{fontSize:13,fontWeight:700,color:"#666"}}>{x.text}{x.until?` · ${x.until}`:""}</div>
+              </div>
+            ))}
+            {PRN.map(p=>(
+              <div key={p.id} style={{padding:"8px 0",borderTop:"1px solid #F3E2C0"}}>
+                <div style={{fontSize:15,fontWeight:800,color:"#222"}}>{p.name}</div>
+                <div style={{fontSize:13,fontWeight:700,color:"#666"}}>{p.dose}. {p.rule}</div>
+              </div>
+            ))}
+            {PERIODIC.map(p=>(
+              <div key={p.id} style={{padding:"8px 0",borderTop:"1px solid #F3E2C0"}}>
+                <div style={{fontSize:15,fontWeight:800,color:"#222"}}>{p.name}</div>
+                <div style={{fontSize:13,fontWeight:700,color:"#666"}}>{p.dose}</div>
+              </div>
+            ))}
+          </div>
+        </>
+      );
+    }
+
     function MedsView({ meds, updateMeds }) {
       const realToday = new Date(); realToday.setHours(0,0,0,0);
       const [sel, setSel] = useState(() => realToday < MED_START ? MED_START : realToday);
       const [who, setWho] = useState(() => { try { return localStorage.getItem("calmc-who") || ""; } catch { return ""; } });
       const [showAll, setShowAll] = useState(false);
+      const [view, setView]       = useState("hoy");
       const [, setTick] = useState(0);
 
       // refresca cada minuto para que los avisos "FALTA" se actualicen
@@ -246,7 +466,7 @@
 
       function needWho() {
         if (who) return false;
-        alert("Primero elige arriba quién eres (Laura o Cristina).");
+        alert("Primero elige arriba quién eres.");
         return true;
       }
 
@@ -295,11 +515,21 @@
           {/* ¿Quién marca? */}
           <div style={{...card,padding:"12px 14px",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",border:who?"2px solid #DCDCDC":"3px solid #E74C3C"}}>
             <div style={{fontSize:14,fontWeight:800,color:"#555"}}>¿Quién marca?</div>
-            {["Laura","Cristina"].map(n=>(
+            {["Laura","Cristina","One","Pilar"].map(n=>(
               <button key={n} onClick={()=>pickWho(n)} style={{background:who===n?"#6C5CE7":"white",color:who===n?"white":"#444",border:`2px solid ${who===n?"#6C5CE7":"#DEDEDE"}`,borderRadius:20,padding:"7px 16px",fontSize:15,fontWeight:800,cursor:"pointer"}}>{n}</button>
             ))}
           </div>
 
+          {/* Hoy / Pastillero */}
+          <div style={{display:"flex",gap:6,marginBottom:12}}>
+            {[["hoy","📋 Hoy"],["pastillero","🗓️ Pastillero"]].map(([k,l])=>(
+              <button key={k} onClick={()=>{setView(k);window.scrollTo(0,0);}} style={{flex:1,background:view===k?"#6C5CE7":"white",color:view===k?"white":"#6C5CE7",border:"2px solid #6C5CE7",borderRadius:10,padding:"11px 0",fontSize:16,fontWeight:900,cursor:"pointer"}}>{l}</button>
+            ))}
+          </div>
+
+          {view==="pastillero" && <PillboxView meds={meds} updateMeds={updateMeds} who={who} needWho={needWho}/>}
+
+          {view==="hoy" && (<>
           {/* Retirados */}
           <div style={{...card,padding:"12px 14px",background:"#FFF5F5",border:"3px solid #E74C3C"}}>
             <div style={{fontSize:13,fontWeight:900,color:"#C0392B",letterSpacing:1}}>⛔ YA NO SE TOMA (retirado en el alta)</div>
@@ -481,6 +711,7 @@
           <div style={{fontSize:12,color:"#999",fontWeight:600,textAlign:"center",padding:"10px 10px 0",lineHeight:1.5}}>
             Copiado del informe de alta del 27/11/2026. Ante cualquier duda, manda el informe en papel o lo que diga el médico.
           </div>
+          </>)}
         </div>
       );
     }
