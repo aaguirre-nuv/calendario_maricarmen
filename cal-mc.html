@@ -76,15 +76,20 @@
     const LAST_DAY_3M = dayNum(addMonths(MED_START,3))-1;
     const LAST_DAY_6M = dayNum(addMonths(MED_START,6))-1;
 
+    // En el orden del día. `time` se muestra en la cabecera; `end` = hora a partir de la cual avisa "FALTA"
     const MOMENTS = [
-      { id:"ayunas",      label:"EN AYUNAS",           when:"en ayunas",       sub:"Al levantarse, antes de comer nada", emoji:"🌅", end:10 },
+      { id:"ayunas",      label:"EN AYUNAS",           when:"en ayunas",          sub:"Al levantarse, antes de comer nada", emoji:"🌅", end:10 },
       { id:"predesayuno", label:"ANTES DEL DESAYUNO",  when:"antes del desayuno", sub:"20 minutos antes de desayunar", emoji:"⏰", end:10 },
-      { id:"desayuno",    label:"DESAYUNO",            when:"en desayuno",    emoji:"☕", end:11 },
-      { id:"comida",      label:"COMIDA",              when:"en comida",      emoji:"🍽️", end:16 },
-      { id:"cena",        label:"CENA",                when:"en cena",        emoji:"🌙", end:23 },
-      { id:"inyeccion",   label:"INYECCIÓN DIARIA",    when:"al día",         sub:"Siempre a la misma hora", emoji:"💉", end:23 },
-      { id:"dia",         label:"DURANTE EL DÍA",      when:"al día",         emoji:"🥤", end:22 },
+      { id:"desayuno",    label:"DESAYUNO",            when:"en desayuno",        emoji:"☕", end:11 },
+      { id:"mediamanana", label:"MEDIA MAÑANA",        when:"a media mañana",     time:"11:30", emoji:"🥤", end:13 },
+      { id:"comida",      label:"COMIDA",              when:"en comida",          emoji:"🍽️", end:16 },
+      { id:"merienda",    label:"MERIENDA",            when:"en la merienda",     time:"17:30", emoji:"🥤", end:19 },
+      { id:"inyeccion",   label:"INYECCIÓN",           when:"a las 20:00",        time:"20:00", sub:"Siempre a las 20:00", emoji:"💉", end:21 },
+      { id:"cena",        label:"CENA",                when:"en cena",            emoji:"🌙", end:23 },
     ];
+
+    // Marcas guardadas con identificadores antiguos (batidos "durante el día")
+    const LEGACY_IDS = { "dia:aduben:1":"mediamanana:aduben", "dia:aduben:2":"merienda:aduben" };
 
     // Bajada de prednisona (cada paso dura `days` días; el último se mantiene)
     const PRED_STEPS = [
@@ -113,7 +118,7 @@
       { id:"atorvastatina", name:"Atorvastatina 40 mg",        unit:"comprimido",                             take:{cena:1} },
       { id:"tamsulosina",   name:"Tamsulosina 0,4 mg",         unit:"cápsula",    isNew:true,                 take:{cena:1} },
       { id:"enoxaparina",   name:"Enoxaparina 40 mg",          unit:"inyección",  isNew:true, to:30,          take:{inyeccion:1}, note:"Bajo la piel. Alternar el sitio y evitar la línea media del abdomen." },
-      { id:"aduben",        name:"Aduben Advance fibra",       unit:"envase",     isNew:true, to:LAST_DAY_3M, take:{dia:2}, split:true, tag:"Suplemento nutricional" },
+      { id:"aduben",        name:"Aduben Advance fibra",       unit:"envase",     isNew:true, to:LAST_DAY_3M, take:{mediamanana:1, merienda:1}, tag:"Batido (suplemento nutricional)" },
     ];
 
     // Solo si hace falta
@@ -426,7 +431,9 @@
 
       const d        = dayNum(sel);
       const key      = toKey(sel);
-      const checks   = (meds.checks||{})[key] || {};
+      const rawChecks = (meds.checks||{})[key] || {};
+      const checks   = {...rawChecks};
+      for (const [old,nu] of Object.entries(LEGACY_IDS)) if (rawChecks[old] && !checks[nu]) checks[nu] = rawChecks[old];
       const log      = meds.log || [];
       const isToday  = isSameDay(sel, realToday);
       const isFuture = sel > realToday;
@@ -480,6 +487,7 @@
           m.checks = m.checks || {};
           const day = m.checks[key] = m.checks[key] || {};
           if (entry) day[it.itemId] = entry; else delete day[it.itemId];
+          for (const [old,nu] of Object.entries(LEGACY_IDS)) if (nu===it.itemId) delete day[old];
           if (!Object.keys(day).length) delete m.checks[key];
           return m;
         });
@@ -577,7 +585,10 @@
                 <div style={{background:head.bg,color:head.fg,padding:"10px 14px",display:"flex",alignItems:"center",gap:10}}>
                   <span style={{fontSize:26}}>{g.emoji}</span>
                   <div style={{flex:1}}>
-                    <div style={{fontSize:17,fontWeight:900,letterSpacing:1}}>{g.label}</div>
+                    <div style={{fontSize:17,fontWeight:900,letterSpacing:1}}>
+                      {g.label}
+                      {g.time && <span style={{marginLeft:8,background:"rgba(255,255,255,0.45)",borderRadius:7,padding:"1px 7px",whiteSpace:"nowrap"}}>🕐 {g.time}</span>}
+                    </div>
                     {g.sub && <div style={{fontSize:12,fontWeight:700,opacity:0.85}}>{g.sub}</div>}
                   </div>
                   <div style={{fontSize:13,fontWeight:900,whiteSpace:"nowrap"}}>{complete ? "✓ HECHO" : g.late ? `⚠️ FALTA ${g.items.length-g.done}` : `${g.done}/${g.items.length}`}</div>
